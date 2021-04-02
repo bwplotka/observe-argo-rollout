@@ -23,9 +23,7 @@ _app: [Name=string]: {
 	configMap: [string]: {
 	}
 
-	// Custom injections.
-	kubernetes: {}
-
+	rolloutStrategy?: {}
 }
 
 //service: [Name=_]: _base & {

@@ -1,7 +1,6 @@
 package demo
 
 import (
-	"k8s.io/api/core/v1"
 	apps_v1 "k8s.io/api/apps/v1"
 )
 
@@ -16,6 +15,7 @@ for Name, App in _app {
 				apiVersion: "apps/v1"
 				kind:       "Deployment"
 				spec: replicas: App.replicas
+				//spec: strategy: App.rolloutStrategy
 			}
 		},
 		if App.kind == "stateful" {
@@ -24,6 +24,7 @@ for Name, App in _app {
 				kind:       "StatefulSet"
 				spec: replicas:    App.replicas
 				spec: serviceName: App.name
+				//spec: updateStrategy: App.rolloutStrategy
 			}
 		},
 		if App.kind == "daemon" {
@@ -32,24 +33,24 @@ for Name, App in _app {
 				kind:       "DaemonSet"
 			}
 		},
-		if len(App.expose.ports) > 0 {
-			(_kubeSvc & {X: App}).X.kubernetes & v1.#Service & {
-				apiVersion: "v1"
-				kind:       "Service"
-			}
-		},
+		//  if len(App.expose.ports) > 0 {
+		//   (_kubeSvc & {X: App}).X.kubernetes & v1.#Service & {
+		//    apiVersion: "v1"
+		//    kind:       "Service"
+		//   }
+		//  },
 	]
 }
 
-_kubeObj: X: kubernetes: {
-	metadata: name: X.name
+_kubeObj: [App=_app]: kubernetes: {
+	metadata: name: App.name
 	metadata: labels: {
-		"app.kubernetes.io/component": X.component
-		"app.kubernetes.io/name":      X.name
+		"app.kubernetes.io/component": App.component
+		"app.kubernetes.io/name":      App.name
 	}
 }
 
-_kubeSvc: X: kubernetes: (_kubeObj & {X: X}).X.kubernetes & {
+_kubeSvc: X: kubernetes: _kubeObj[X].kubernetes & {
 	spec: ports: [
 		for Name, Port in X.expose.port {
 			name:       Name
@@ -63,7 +64,7 @@ _kubeSvc: X: kubernetes: (_kubeObj & {X: X}).X.kubernetes & {
 // _k8sSpec injects Kubernetes definitions into a deployment
 // Unify the deployment at X and read out kubernetes to obtain
 // the conversion.
-_kubeSpec: X: kubernetes: (_kubeObj & {X: X}).X.kubernetes & {
+_kubeSpec: X: kubernetes: (_kubeObj & {XX: X}).XX.kubernetes & {
 	spec: selector: matchLabels: "app.kubernetes.io/name": X.name
 	spec: template: {
 		metadata: labels: kubernetes.metadata.labels

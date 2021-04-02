@@ -9,8 +9,8 @@ _app: "argo-rollouts": {
 		mountPath: "/etc/prometheus"
 		spec: configMap: name: "prometheus"
 	}
-	// Inject special update strategy.
-	kubernetes: spec: strategy: {
+
+	rolloutStrategy: {
 		type: "Recreate"
 	}
 }
@@ -29,12 +29,11 @@ _app: monitor: {
 		spec: configMap: name: "prometheus"
 	}
 
-	// Inject special update strategy.
-	kubernetes: spec: strategy: {
-		type: "RollingUpdate"
-		rollingUpdate: {
-			maxSurge:       0
-			maxUnavailable: 1
-		}
-	}
+	// rolloutStrategy: {
+	//  type: "RollingUpdate"
+	//  rollingUpdate: {
+	//   maxSurge:       0
+	//   maxUnavailable: 1
+	//  }
+	// }
 }
