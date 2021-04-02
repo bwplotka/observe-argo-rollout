@@ -1,10 +1,11 @@
 package demo
 
 _app: [Name=string]: {
-	name:     Name
-	kind:     *"deployment" | "stateful" | "daemon"
-	replicas: int | *1
-	image:    string
+	name:      Name
+	component: string | *Name
+	kind:      *"deployment" | "stateful" | "daemon"
+	replicas:  int | *1
+	image:     string
 	// Expose ports defines named ports that is exposed in the service
 	expose: ports: [string]: int
 	// Ports defines named ports that is not exposed in the service.
@@ -17,11 +18,13 @@ _app: [Name=string]: {
 		mountPath: string
 		subPath:   string | *null
 		readOnly:  *false | true
-		kubernetes: {}
 	}
 
 	configMap: [string]: {
 	}
+
+	// Custom injections.
+	kubernetes: {}
 
 }
 

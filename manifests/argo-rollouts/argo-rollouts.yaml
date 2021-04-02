@@ -14444,7 +14444,7 @@ metadata:
   name: argo-rollouts-metrics
 spec:
   ports:
-    - name: metrics
+    - name: m_metrics
       port: 8090
       protocol: TCP
       targetPort: 8090
@@ -14474,6 +14474,9 @@ spec:
         - image: argoproj/argo-rollouts:v0.10.2
           imagePullPolicy: Always
           name: argo-rollouts
+          ports:
+            - name: m-metrics
+              containerPort: 8090
       securityContext:
         runAsNonRoot: true
       serviceAccountName: argo-rollouts

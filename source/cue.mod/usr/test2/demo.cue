@@ -38,16 +38,6 @@ _app: [Name=_]: _base & {
 	}
 }
 
-service: [Name=_]: _base & {
-	name: *Name | string
-	port: [Name=_]: {
-		name:     string | *Name
-		port:     int
-		protocol: *"TCP" | "UDP"
-	}
-	kubernetes: {}
-}
-
 configMap: [string]: {
 }
 
