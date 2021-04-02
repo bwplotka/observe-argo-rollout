@@ -17,9 +17,9 @@ GO     ?= $(shell which go)
 #	@echo "Running cue"
 #	@$(CUE) <flags/args..>
 #
-CUE := $(GOBIN)/cue-v0.2.2
+CUE := $(GOBIN)/cue-v0.3.0-beta.8.0.20210401191157-2115955add8e
 $(CUE): $(BINGO_DIR)/cue.mod
 	@# Install binary/ries using Go 1.14+ build command. This is using bwplotka/bingo-controlled, separate go module with pinned dependencies.
-	@echo "(re)installing $(GOBIN)/cue-v0.2.2"
-	@cd $(BINGO_DIR) && $(GO) build -mod=mod -modfile=cue.mod -o=$(GOBIN)/cue-v0.2.2 "cuelang.org/go/cmd/cue"
+	@echo "(re)installing $(GOBIN)/cue-v0.3.0-beta.8.0.20210401191157-2115955add8e"
+	@cd $(BINGO_DIR) && $(GO) build -mod=mod -modfile=cue.mod -o=$(GOBIN)/cue-v0.3.0-beta.8.0.20210401191157-2115955add8e "cuelang.org/go/cmd/cue"
 
