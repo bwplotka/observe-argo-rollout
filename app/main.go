@@ -33,7 +33,7 @@ var (
 	appVersion         = flag.String("set-version", "first", "Injected version to be presented via metrics.")
 	lat                = flag.String("latency", "90%500ms,10%200ms", "Encoded latency and probability of the response in format as: <probability>%<duration>,<probability>%<duration>....")
 	successProb        = flag.Float64("success-prob", 100, "The probability (in %) of getting a successful response")
-	traceEndpoint      = flag.String("trace-endpoint", "tempo.demo.svc.cluster.local:9090", "The gRPC OTLP endpoint for tracing backend. Hack: Set it to 'stdout' to print traces to the output instead")
+	traceEndpoint      = flag.String("trace-endpoint", "tempo.demo.svc.cluster.local:9091", "The gRPC OTLP endpoint for tracing backend. Hack: Set it to 'stdout' to print traces to the output instead")
 	traceSamplingRatio = flag.Float64("trace-sampling-ratio", 1.0, "Sampling ratio")
 )
 
@@ -123,7 +123,7 @@ func main() {
 func runMain() (err error) {
 	latDecider, err = newLatencyDecider(*lat)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	version.Version = *appVersion
@@ -141,11 +141,13 @@ func runMain() (err error) {
 		tOpts := []tracing.Option{tracing.WithSampler(tracing.TraceIDRatioBasedSampler(*traceSamplingRatio))}
 		switch *traceEndpoint {
 		case "stdout":
-			tOpts = append(tOpts, tracing.WithPrettyPrinter(os.Stdout))
+			tOpts = append(tOpts, tracing.WithPrinter(os.Stdout))
 		default:
 			tOpts = append(tOpts, tracing.WithOTLP(
 				tracing.WithOTLPInsecure(),
 				tracing.WithOTLPEndpoint(*traceEndpoint),
+				// Tempo requires this.
+				tracing.WithOTLPHeaders(map[string]string{"X-Scope-OrgID": "yolo"}),
 			))
 		}
 		tp, closeFn, err := tracing.NewProvider(tOpts...)
@@ -153,13 +155,13 @@ func runMain() (err error) {
 			return err
 		}
 		tracingProvider = tp
-		errcapture.Do(&err, closeFn, "close tracers")
-		fmt.Println("Tracing enabled")
+		defer errcapture.Do(&err, closeFn, "close tracers")
+		fmt.Println("Tracing enabled", *traceEndpoint)
 	}
 
 	m := http.NewServeMux()
 	m.Handle("/metrics", exthttp.NewInstrumentationMiddleware(reg, nil, nil).
-		NewHandler("/metrics", promhttp.HandlerFor(
+		WrapHandler("/metrics", promhttp.HandlerFor(
 			reg,
 			promhttp.HandlerOpts{
 				// Opt into OpenMetrics to support exemplars.
@@ -167,7 +169,7 @@ func runMain() (err error) {
 			},
 		)))
 	m.HandleFunc("/ping", exthttp.NewInstrumentationMiddleware(reg, nil, tracingProvider).
-		NewHandler("/ping", http.HandlerFunc(handlerPing)))
+		WrapHandler("/ping", http.HandlerFunc(handlerPing)))
 	srv := http.Server{Addr: *addr, Handler: m}
 
 	// Setup multiple 2 jobs. One is for serving HTTP requests, second to listen for Linux signals like Ctrl+C.

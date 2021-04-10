@@ -95,7 +95,7 @@ func (ins *instrumentationTripperware) WrapRoundTripper(targetName string, next 
 			cntr := requestsTotal.WithLabelValues(strings.ToLower(req.Method), fmt.Sprintf("%d", resp.StatusCode))
 			observer := requestDuration.WithLabelValues(strings.ToLower(req.Method), fmt.Sprintf("%d", resp.StatusCode))
 			// If we find a TraceID from OpenTelemetry we'll expose it as Exemplar.
-			if spanCtx := trace.SpanContextFromContext(req.Context()); spanCtx.HasTraceID() {
+			if spanCtx := trace.SpanContextFromContext(req.Context()); spanCtx.HasTraceID() && spanCtx.IsSampled() {
 				traceID := prometheus.Labels{"traceID": spanCtx.TraceID().String()}
 
 				cntr.(prometheus.ExemplarAdder).AddWithExemplar(1, traceID)

@@ -154,7 +154,7 @@ func getPrometheus(name string) (appsv1.StatefulSet, corev1.Service, corev1.Conf
 	return set, srv, promConfigAndMount.ConfigMap()
 }
 
-func getGrafana(promURL string, name string) (appsv1.Deployment, corev1.Service, corev1.ConfigMap, corev1.ConfigMap, corev1.ConfigMap) {
+func getGrafana(promURL, tempoURL string, name string) (appsv1.Deployment, corev1.Service, corev1.ConfigMap, corev1.ConfigMap, corev1.ConfigMap) {
 	const (
 		configVolumeName  = "grafana-config"
 		configVolumeMount = "/etc/grafana"
@@ -212,6 +212,11 @@ datasources:
   orgId: 1
   url: http://` + promURL + `
   isDefault: true
+  editable: true
+- name: Tempo
+  type: tempo
+  orgId: 1
+  url: http://` + tempoURL + `
   editable: true
 `,
 		},

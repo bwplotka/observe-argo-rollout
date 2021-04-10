@@ -47,14 +47,12 @@ func WithOTLP(opts ...OTLPOption) Option {
 	}
 }
 
-// WithPrettyPrinter sets the printing exporter for spans.
-func WithPrettyPrinter(w io.Writer) Option {
+// WithPrinter sets the printing exporter for spans.
+func WithPrinter(w io.Writer) Option {
 	return func(o *options) {
 		o.newExporters = append(o.newExporters, func() (etrace.SpanExporter, error) {
 			e, err := stdout.NewExporter(
-				stdout.WithPrettyPrint(),
 				stdout.WithWriter(w),
-				stdout.WithoutMetricExport(),
 			)
 			if err != nil {
 				return nil, errors.Wrap(err, "pretty print exporter creation")
@@ -108,11 +106,13 @@ func NewProvider(opts ...Option) (*Provider, func() error, error) {
 			return exporter.Shutdown(ctx)
 		})
 
-		// TODO(bwplotka): Allow different batchers too.
-		tpOpts = append(tpOpts, sdktrace.WithSyncer(exporter))
+		// TODO(bwplotka): Allow different batch options too.
+		tpOpts = append(tpOpts, sdktrace.WithBatcher(exporter))
 	}
 
 	if o.sampler != nil {
+		tpOpts = append(tpOpts, sdktrace.WithSampler(o.sampler))
+	} else {
 		tpOpts = append(tpOpts, sdktrace.WithSampler(sdktrace.AlwaysSample()))
 	}
 

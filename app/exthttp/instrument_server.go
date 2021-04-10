@@ -22,13 +22,13 @@ import (
 // InstrumentationMiddleware holds necessary metrics to instrument an http.Server
 // and provides necessary behaviors.
 type InstrumentationMiddleware interface {
-	// NewHandler wraps the given HTTP handler for instrumentation.
-	NewHandler(handlerName string, handler http.Handler) http.HandlerFunc
+	// WrapHandler wraps the given HTTP handler for instrumentation.
+	WrapHandler(handlerName string, handler http.Handler) http.HandlerFunc
 }
 
 type nopInstrumentationMiddleware struct{}
 
-func (ins nopInstrumentationMiddleware) NewHandler(_ string, handler http.Handler) http.HandlerFunc {
+func (ins nopInstrumentationMiddleware) WrapHandler(_ string, handler http.Handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		handler.ServeHTTP(w, r)
 	}
@@ -55,7 +55,7 @@ func NewInstrumentationMiddleware(reg prometheus.Registerer, buckets []float64, 
 	return &instrumentationMiddleware{reg: reg, buckets: buckets, tp: tp}
 }
 
-// NewHandler wraps the given HTTP handler for instrumentation. It
+// WrapHandler wraps the given HTTP handler for instrumentation. It
 // registers four metric collectors (if not already done) and reports HTTP
 // metrics to the (newly or already) registered collectors: http_requests_total
 // (CounterVec), http_request_duration_seconds (Histogram),
@@ -63,7 +63,7 @@ func NewInstrumentationMiddleware(reg prometheus.Registerer, buckets []float64, 
 // has a constant label named "handler" with the provided handlerName as
 // value. http_requests_total is a metric vector partitioned by HTTP method
 // (label name "method") and HTTP status code (label name "code").
-func (ins *instrumentationMiddleware) NewHandler(handlerName string, handler http.Handler) http.HandlerFunc {
+func (ins *instrumentationMiddleware) WrapHandler(handlerName string, handler http.Handler) http.HandlerFunc {
 	reg := prometheus.WrapRegistererWith(prometheus.Labels{"handler": handlerName}, ins.reg)
 
 	requestDuration := promauto.With(reg).NewHistogramVec(
@@ -109,7 +109,7 @@ func (ins *instrumentationMiddleware) NewHandler(handlerName string, handler htt
 
 					observer := requestDuration.WithLabelValues(strings.ToLower(r.Method), wd.Status())
 					// If we find a TraceID from OpenTelemetry we'll expose it as Exemplar.
-					if spanCtx := trace.SpanContextFromContext(r.Context()); spanCtx.HasTraceID() {
+					if spanCtx := trace.SpanContextFromContext(r.Context()); spanCtx.HasTraceID() && spanCtx.IsSampled() {
 						traceID := prometheus.Labels{"traceID": spanCtx.TraceID().String()}
 
 						observer.(prometheus.ExemplarObserver).ObserveWithExemplar(time.Since(now).Seconds(), traceID)

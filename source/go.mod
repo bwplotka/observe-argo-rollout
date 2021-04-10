@@ -10,7 +10,6 @@ require (
 	github.com/grafana/tempo v0.6.1-0.20210405161918-019d3a4f04c2
 	github.com/prometheus/common v0.20.0
 	github.com/tdewolff/minify/v2 v2.9.15
-	github.com/weaveworks/common v0.0.0-20210112142934-23c8d7fa6120
 	k8s.io/api v0.20.5
 	k8s.io/apimachinery v0.20.5
 )

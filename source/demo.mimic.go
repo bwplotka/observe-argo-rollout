@@ -28,7 +28,10 @@ func main() {
 
 		g.Add("prom.yaml", encoding.GhodssYAML(promSet, promSrv, promConfigAndMount))
 		g.Add("grafana.yaml", encoding.GhodssYAML(
-			getGrafana(fmt.Sprintf("%s.%s.svc.cluster.local:%d", promSrv.Name, namespace, promSrv.Spec.Ports[0].Port), "grafana")),
+			getGrafana(
+				fmt.Sprintf("%s.%s.svc.cluster.local:%d", promSrv.Name, namespace, promSrv.Spec.Ports[0].Port),
+				fmt.Sprintf("tempo.%s.svc.cluster.local:9090", namespace),
+				"grafana")),
 		)
 		g.Add("tempo.yaml", encoding.GhodssYAML(getTempo("tempo")))
 	}

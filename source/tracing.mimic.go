@@ -4,27 +4,111 @@
 package main
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/bwplotka/mimic/lib/abstr/kubernetes/volumes"
 	"github.com/go-openapi/swag"
-	"github.com/grafana/tempo/cmd/tempo/app"
-	"github.com/grafana/tempo/modules/compactor"
-	"github.com/grafana/tempo/modules/distributor"
-	"github.com/grafana/tempo/modules/ingester"
-	"github.com/grafana/tempo/modules/storage"
-	"github.com/grafana/tempo/tempodb"
+	"github.com/grafana/tempo/modules/frontend"
+	"github.com/grafana/tempo/modules/querier"
 	"github.com/grafana/tempo/tempodb/backend"
+	"github.com/grafana/tempo/tempodb/backend/azure"
+	"github.com/grafana/tempo/tempodb/backend/cache/memcached"
+	"github.com/grafana/tempo/tempodb/backend/cache/redis"
+	"github.com/grafana/tempo/tempodb/backend/gcs"
 	"github.com/grafana/tempo/tempodb/backend/local"
+	"github.com/grafana/tempo/tempodb/backend/s3"
 	"github.com/grafana/tempo/tempodb/encoding"
 	"github.com/grafana/tempo/tempodb/pool"
 	"github.com/grafana/tempo/tempodb/wal"
-	"github.com/weaveworks/common/server"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 )
+
+// TODO(bwplotka): Instead of importing whole struct, I redefined all here. Reason is:
+// * Those structs are not prepared to be marshalled to, e.g `omitempty` are omitted, causing empty strings being marshaled.
+//   This is then wrongly parsed by Tempo.
+// Long Term Solution: Create tool for getting those structs from exact version, with only deps needed, with omitempty etc?
+type TempoConfig struct {
+	Target      string `yaml:"target,omitempty"`
+	AuthEnabled bool   `yaml:"auth_enabled,omitempty"`
+	HTTPPrefix  string `yaml:"http_prefix,omitempty"`
+
+	Server        TempoServerConfig      `yaml:"server,omitempty"`
+	Ingester      TempoIngesterConfig    `yaml:"ingester,omitempty"`
+	Distributor   TempoDistributorConfig `yaml:"distributor,omitempty"`
+	Compactor     TempoCompactorConfig   `yaml:"compactor,omitempty"`
+	StorageConfig TempoStorageConfig     `yaml:"storage,omitempty"`
+	Querier       querier.Config         `yaml:"querier,omitempty"`
+	Frontend      frontend.Config        `yaml:"query_frontend,omitempty"`
+}
+
+type TempoServerConfig struct {
+	HTTPListenAddress string `yaml:"http_listen_address,omitempty"`
+	HTTPListenPort    int    `yaml:"http_listen_port,omitempty"`
+}
+
+// Config for an ingester.
+type TempoIngesterConfig struct {
+	ConcurrentFlushes    int           `yaml:"concurrent_flushes,omitempty"`
+	FlushCheckPeriod     time.Duration `yaml:"flush_check_period,omitempty"`
+	FlushOpTimeout       time.Duration `yaml:"flush_op_timeout,omitempty"`
+	MaxTraceIdle         time.Duration `yaml:"trace_idle_period,omitempty"`
+	MaxBlockDuration     time.Duration `yaml:"max_block_duration,omitempty"`
+	MaxBlockBytes        uint64        `yaml:"max_block_bytes,omitempty"`
+	CompleteBlockTimeout time.Duration `yaml:"complete_block_timeout,omitempty"`
+	OverrideRingKey      string        `yaml:"override_ring_key,omitempty"`
+}
+
+// Config for a Distributor.
+type TempoDistributorConfig struct {
+	//  This receivers node is equivalent in format to the receiver node in the
+	//  otel collector: https://github.com/open-telemetry/opentelemetry-collector/tree/master/receiver
+	Receivers map[string]interface{} `yaml:"receivers,omitempty"`
+}
+
+type TempoStorageConfig struct {
+	Trace TempoStorageConfigConfig `yaml:"trace"`
+}
+
+type TempoStorageConfigConfig struct {
+	Pool  *pool.Config          `yaml:"pool,omitempty"`
+	WAL   *wal.Config           `yaml:"wal,omitempty"`
+	Block *encoding.BlockConfig `yaml:"block,omitempty"`
+
+	BlocklistPoll            time.Duration `yaml:"blocklist_poll,omitempty"`
+	BlocklistPollConcurrency uint          `yaml:"blocklist_poll_concurrency,omitempty"`
+
+	// backends
+	Backend string        `yaml:"backend,omitempty"`
+	Local   *local.Config `yaml:"local,omitempty"`
+	GCS     *gcs.Config   `yaml:"gcs,omitempty"`
+	S3      *s3.Config    `yaml:"s3,omitempty"`
+	Azure   *azure.Config `yaml:"azure,omitempty"`
+
+	// caches
+	Cache     string            `yaml:"cache,omitempty"`
+	Memcached *memcached.Config `yaml:"memcached,omitempty"`
+	Redis     *redis.Config     `yaml:"redis,omitempty"`
+}
+
+type TempoCompactorConfig struct {
+	Compactor TempoCompactionConfig `yaml:"compaction"`
+}
+
+// CompactorConfig contains compaction configuration options
+type TempoCompactionConfig struct {
+	ChunkSizeBytes          uint32        `yaml:"chunk_size_bytes,omitempty"`
+	FlushSizeBytes          uint32        `yaml:"flush_size_bytes,omitempty"`
+	MaxCompactionRange      time.Duration `yaml:"compaction_window,omitempty"`
+	MaxCompactionObjects    int           `yaml:"max_compaction_objects,omitempty"`
+	MaxBlockBytes           uint64        `yaml:"max_block_bytes,omitempty"`
+	BlockRetention          time.Duration `yaml:"block_retention,omitempty"`
+	CompactedBlockRetention time.Duration `yaml:"compacted_block_retention,omitempty"`
+	RetentionConcurrency    uint          `yaml:"retention_concurrency,omitempty"`
+}
 
 func getTempo(name string) (appsv1.StatefulSet, corev1.Service, corev1.ConfigMap) {
 	const (
@@ -32,7 +116,9 @@ func getTempo(name string) (appsv1.StatefulSet, corev1.Service, corev1.ConfigMap
 		configVolumeMount = "/etc/tempo"
 		dataPath          = "/data"
 		httpPort          = 9090
+		grpcPort          = 9091
 	)
+
 	configAndMount := volumes.ConfigAndMount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   configVolumeName,
@@ -40,46 +126,43 @@ func getTempo(name string) (appsv1.StatefulSet, corev1.Service, corev1.ConfigMap
 		},
 		VolumeMount: corev1.VolumeMount{Name: configVolumeName, MountPath: configVolumeMount},
 		Data: map[string]string{
-			"tempo.yaml": EncodeYAML(app.Config{
+			"tempo.yaml": EncodeYAML(TempoConfig{
 				AuthEnabled: false,
-				Server: server.Config{
+				Server: TempoServerConfig{
 					HTTPListenPort: httpPort,
 				},
-				Ingester: ingester.Config{
+				Ingester: TempoIngesterConfig{
 					MaxTraceIdle: 10 * time.Second,
 					// Normally it should be larger, around 10GB. For quick demo purposes, let's make it small to fit Katacoda environment.
 					MaxBlockBytes:    1e6,
 					MaxBlockDuration: 5 * time.Minute,
 				},
-				Distributor: distributor.Config{
+				Distributor: TempoDistributorConfig{
 					Receivers: map[string]interface{}{
-						"jaeger": map[string]interface{}{
-							"protocols": map[string]interface{}{
-								"grpc":        nil,
-								"thrift_http": nil,
-							},
-						},
 						"otlp": map[string]interface{}{
 							"protocols": map[string]interface{}{
-								"grpc": nil,
+								"grpc": map[string]interface{}{
+									"endpoint": fmt.Sprintf("0.0.0.0:%v", grpcPort),
+								},
 							},
 						},
 					},
 				},
-				Compactor: compactor.Config{
-					Compactor: tempodb.CompactorConfig{
+				Compactor: TempoCompactorConfig{
+					Compactor: TempoCompactionConfig{
 						MaxCompactionRange:      1 * time.Hour,
 						MaxBlockBytes:           1e6,
 						BlockRetention:          1 * time.Hour,
 						CompactedBlockRetention: 10 * time.Minute,
 					},
 				},
-				StorageConfig: storage.Config{
-					Trace: tempodb.Config{
+				StorageConfig: TempoStorageConfig{
+					Trace: TempoStorageConfigConfig{
 						Backend: "local",
 						Block: &encoding.BlockConfig{
 							BloomFP:              .05,
 							IndexDownsampleBytes: 1024 * 1024,
+							IndexPageSizeBytes:   250 * 1024,
 							Encoding:             backend.EncZstd,
 						},
 						WAL:   &wal.Config{Filepath: "/data/wal"},
@@ -104,14 +187,17 @@ func getTempo(name string) (appsv1.StatefulSet, corev1.Service, corev1.ConfigMap
 			Labels: map[string]string{selectorName: name},
 		},
 		Spec: corev1.ServiceSpec{
-			Type:     corev1.ServiceTypeNodePort,
 			Selector: map[string]string{selectorName: name},
 			Ports: []corev1.ServicePort{
+				{
+					Name:       "grpc",
+					Port:       grpcPort,
+					TargetPort: intstr.FromInt(grpcPort),
+				},
 				{
 					Name:       "http",
 					Port:       httpPort,
 					TargetPort: intstr.FromInt(httpPort),
-					NodePort:   30555,
 				},
 			},
 		},
@@ -126,7 +212,7 @@ func getTempo(name string) (appsv1.StatefulSet, corev1.Service, corev1.ConfigMap
 
 	container := corev1.Container{
 		Name:  "tempo",
-		Image: "grafana/tempo:v0.6.0",
+		Image: "grafana/tempo:93c378a9",
 		Args: []string{
 			"-config.file=/etc/tempo/tempo.yaml",
 		},
@@ -140,7 +226,10 @@ func getTempo(name string) (appsv1.StatefulSet, corev1.Service, corev1.ConfigMap
 			},
 			SuccessThreshold: 3,
 		},
-		Ports:        []corev1.ContainerPort{{Name: "m-http", ContainerPort: httpPort}},
+		Ports: []corev1.ContainerPort{
+			{Name: "m-http", ContainerPort: httpPort},
+			{Name: "grpc", ContainerPort: grpcPort},
+		},
 		VolumeMounts: volumes.VolumesAndMounts{configAndMount.VolumeAndMount(), dataVM}.VolumeMounts(),
 		SecurityContext: &corev1.SecurityContext{
 			RunAsNonRoot: swag.Bool(false),
@@ -174,6 +263,5 @@ func getTempo(name string) (appsv1.StatefulSet, corev1.Service, corev1.ConfigMap
 			},
 		},
 	}
-
 	return set, srv, configAndMount.ConfigMap()
 }

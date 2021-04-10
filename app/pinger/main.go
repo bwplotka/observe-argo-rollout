@@ -23,10 +23,11 @@ import (
 )
 
 var (
+	// TODO(bwplotka): Move those flags out of globals.
 	addr               = flag.String("listen-address", ":8080", "The address to listen on for HTTP requests.")
-	endpoint           = flag.String("endpoint", "http://ponger.demo.svc.cluster.local:8080/ping", "The address of pong app we can connect to and send requests.")
+	endpoint           = flag.String("endpoint", "http://app.demo.svc.cluster.local:8080/ping", "The address of pong app we can connect to and send requests.")
 	pingsPerSec        = flag.Int("pings-per-second", 10, "How many pings per second we should request")
-	traceEndpoint      = flag.String("trace-endpoint", "tempo.demo.svc.cluster.local:9090", "The gRPC OTLP endpoint for tracing backend. Hack: Set it to 'stdout' to print traces to the output instead")
+	traceEndpoint      = flag.String("trace-endpoint", "tempo.demo.svc.cluster.local:9091", "The gRPC OTLP endpoint for tracing backend. Hack: Set it to 'stdout' to print traces to the output instead")
 	traceSamplingRatio = flag.Float64("trace-sampling-ratio", 1.0, "Sampling ratio")
 )
 
@@ -50,11 +51,13 @@ func runMain() (err error) {
 		tOpts := []tracing.Option{tracing.WithSampler(tracing.TraceIDRatioBasedSampler(*traceSamplingRatio))}
 		switch *traceEndpoint {
 		case "stdout":
-			tOpts = append(tOpts, tracing.WithPrettyPrinter(os.Stdout))
+			tOpts = append(tOpts, tracing.WithPrinter(os.Stdout))
 		default:
 			tOpts = append(tOpts, tracing.WithOTLP(
 				tracing.WithOTLPInsecure(),
 				tracing.WithOTLPEndpoint(*traceEndpoint),
+				// Tempo requires this.
+				tracing.WithOTLPHeaders(map[string]string{"X-Scope-OrgID": "yolo"}),
 			))
 		}
 		tp, closeFn, err := tracing.NewProvider(tOpts...)
@@ -62,13 +65,13 @@ func runMain() (err error) {
 			return err
 		}
 		tracingProvider = tp
-		errcapture.Do(&err, closeFn, "close tracers")
-		fmt.Println("Tracing enabled")
+		defer errcapture.Do(&err, closeFn, "close tracers")
+		fmt.Println("Tracing enabled", *traceEndpoint)
 	}
 
 	instr := exthttp.NewInstrumentationMiddleware(reg, nil, nil)
 	m := http.NewServeMux()
-	m.Handle("/metrics", instr.NewHandler("/metrics", promhttp.HandlerFor(
+	m.Handle("/metrics", instr.WrapHandler("/metrics", promhttp.HandlerFor(
 		reg,
 		promhttp.HandlerOpts{
 			// Opt into OpenMetrics to support exemplars.
