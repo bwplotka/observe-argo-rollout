@@ -25,6 +25,9 @@ spec:
         - --storage.tsdb.path=/data
         - --web.enable-lifecycle
         - --web.enable-admin-api
+        - --enable-feature=promql-at-modifier
+        - --enable-feature=promql-negative-offset
+        - --enable-feature=exemplar-storage
         env:
         - name: HOSTNAME
           valueFrom:
