@@ -125,7 +125,12 @@ func (ins *instrumentationMiddleware) WrapHandler(handlerName string, handler ht
 	)
 
 	if ins.tp != nil {
-		return otelhttp.NewHandler(base, handlerName, otelhttp.WithTracerProvider(ins.tp), otelhttp.WithPropagators(ins.tp)).ServeHTTP
+		return otelhttp.NewHandler(
+			base,
+			handlerName,
+			otelhttp.WithTracerProvider(ins.tp),
+			otelhttp.WithPropagators(ins.tp),
+		).ServeHTTP
 	}
 	return base.ServeHTTP
 }

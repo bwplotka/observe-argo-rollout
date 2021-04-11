@@ -74,6 +74,7 @@ status:
 apiVersion: v1
 data:
   tempo.yaml: |
+    auth_enabled: false
     server:
       http_listen_port: 9090
     ingester:

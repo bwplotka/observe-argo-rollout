@@ -54,10 +54,6 @@ func NewInstrumentationTripperware(reg prometheus.Registerer, buckets []float64,
 }
 
 func (ins *instrumentationTripperware) WrapRoundTripper(targetName string, next http.RoundTripper) http.RoundTripper {
-	if ins.tp != nil {
-		next = otelhttp.NewTransport(next, otelhttp.WithTracerProvider(ins.tp), otelhttp.WithPropagators(ins.tp))
-	}
-
 	reg := prometheus.WrapRegistererWith(prometheus.Labels{"target": targetName}, ins.reg)
 	requestDuration := promauto.With(reg).NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -82,9 +78,9 @@ func (ins *instrumentationTripperware) WrapRoundTripper(targetName string, next 
 		},
 	)
 
-	return promhttp.InstrumentRoundTripperInFlight(
+	base := promhttp.InstrumentRoundTripperInFlight(
 		requestsInFlight,
-		// TODO(bwplotka): Can't use promhttp.InstrumentRoundTripperCounter or  promhttp.InstrumentRoundTripperDuration, propose exemplars feature.
+		// TODO(bwplotka): Can't use promhttp.InstrumentRoundTripperCounter or promhttp.InstrumentRoundTripperDuration, propose exemplars feature.
 		promhttp.RoundTripperFunc(func(req *http.Request) (*http.Response, error) {
 			now := time.Now()
 			resp, err := next.RoundTrip(req)
@@ -95,6 +91,7 @@ func (ins *instrumentationTripperware) WrapRoundTripper(targetName string, next 
 			cntr := requestsTotal.WithLabelValues(strings.ToLower(req.Method), fmt.Sprintf("%d", resp.StatusCode))
 			observer := requestDuration.WithLabelValues(strings.ToLower(req.Method), fmt.Sprintf("%d", resp.StatusCode))
 			// If we find a TraceID from OpenTelemetry we'll expose it as Exemplar.
+
 			if spanCtx := trace.SpanContextFromContext(req.Context()); spanCtx.HasTraceID() && spanCtx.IsSampled() {
 				traceID := prometheus.Labels{"traceID": spanCtx.TraceID().String()}
 
@@ -108,4 +105,8 @@ func (ins *instrumentationTripperware) WrapRoundTripper(targetName string, next 
 			return resp, err
 		}),
 	)
+	if ins.tp != nil {
+		return otelhttp.NewTransport(base, otelhttp.WithTracerProvider(ins.tp), otelhttp.WithPropagators(ins.tp))
+	}
+	return base
 }

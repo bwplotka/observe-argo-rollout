@@ -162,7 +162,7 @@ func getGrafana(promURL, tempoURL string, name string) (appsv1.Deployment, corev
 	)
 
 	var (
-		// Grafana has those harcoded or something...
+		// Grafana has those hardcoded or something...
 		// https://grafana.com/tutorials/provision-dashboards-and-data-sources/
 		datVolumeMount  = filepath.Join(configVolumeMount, "provisioning", "datasources")
 		dashVolumeMount = filepath.Join(configVolumeMount, "provisioning", "dashboards")
@@ -208,13 +208,25 @@ allow_embedding = true`,
 datasources:
 - name: Prometheus
   type: prometheus
+  uid: Prom1
   access: proxy
   orgId: 1
   url: http://` + promURL + `
   isDefault: true
   editable: true
+  httpMethod: POST
+  version: 1
+  jsonData:
+    exemplarTraceIdDestinations:
+      # Field with internal link pointing to data source in Grafana.
+      # datasourceUid value can be anything, but it should be unique across all defined data source uids.
+      - datasourceUid: tempo1
+        name: traceID
+
 - name: Tempo
   type: tempo
+  uid: tempo1
+  # access: proxy
   orgId: 1
   url: http://` + tempoURL + `
   editable: true
@@ -270,7 +282,7 @@ providers:
 
 	container := corev1.Container{
 		Name:            "grafana",
-		Image:           "grafana/grafana:7.5.2",
+		Image:           "grafana/grafana:7.5.0",
 		ImagePullPolicy: corev1.PullAlways,
 		ReadinessProbe: &corev1.Probe{
 			Handler: corev1.Handler{

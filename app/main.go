@@ -105,10 +105,14 @@ func handlerPing(w http.ResponseWriter, r *http.Request) {
 
 		if n <= *successProb {
 			w.WriteHeader(200)
-			_, _ = w.Write([]byte("pong"))
-			return
+			_, _ = fmt.Fprintln(w, "pong")
+		} else {
+			w.WriteHeader(500)
 		}
-		w.WriteHeader(500)
+
+		if span.SpanContext().HasTraceID() && span.SpanContext().IsSampled() {
+			_, _ = fmt.Fprintf(w, "BTW, here is (sampled) trace ID: %v", span.SpanContext().TraceID().String())
+		}
 	})
 }
 
@@ -146,8 +150,6 @@ func runMain() (err error) {
 			tOpts = append(tOpts, tracing.WithOTLP(
 				tracing.WithOTLPInsecure(),
 				tracing.WithOTLPEndpoint(*traceEndpoint),
-				// Tempo requires this.
-				tracing.WithOTLPHeaders(map[string]string{"X-Scope-OrgID": "yolo"}),
 			))
 		}
 		tp, closeFn, err := tracing.NewProvider(tOpts...)

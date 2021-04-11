@@ -33,7 +33,7 @@ import (
 // Long Term Solution: Create tool for getting those structs from exact version, with only deps needed, with omitempty etc?
 type TempoConfig struct {
 	Target      string `yaml:"target,omitempty"`
-	AuthEnabled bool   `yaml:"auth_enabled,omitempty"`
+	AuthEnabled bool   `yaml:"auth_enabled"`
 	HTTPPrefix  string `yaml:"http_prefix,omitempty"`
 
 	Server        TempoServerConfig      `yaml:"server,omitempty"`
